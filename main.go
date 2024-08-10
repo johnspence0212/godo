@@ -15,8 +15,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var globalList []string
-
 const listHeight = 14
 
 var (
@@ -75,7 +73,7 @@ type model struct {
 
 func initialModel() model {
 	ti := textinput.New()
-	ti.Placeholder = "Pikachu"
+	ti.Placeholder = "task"
 	ti.Focus()
 	ti.CharLimit = 156
 	ti.Width = 20
@@ -85,7 +83,7 @@ func initialModel() model {
 	const defaultWidth = 20
 
 	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
-	l.Title = "What do you want for dinner?"
+	l.Title = "Tasks List"
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
 	l.Styles.Title = titleStyle
@@ -107,9 +105,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.list.SetWidth(msg.Width)
+		return m, nil
 	case tea.KeyMsg:
+		switch keypress := msg.String(); keypress {
+		case "ctrl+c":
+			if len(m.list.Items()) == 0 {
+				// Handle the case when the list is empty
+				return m, nil
+			}
+			selected := m.list.SelectedItem().(item)
+			var updatedItem item
+			if strings.HasPrefix(string(selected), "[x]") {
+				updatedItem = item(strings.Replace(string(selected), "[x]", "[ ]", 1))
+			} else {
+				updatedItem = item(strings.Replace(string(selected), "[ ]", "[x]", 1))
+			}
+			m.list.SetItem(m.list.Index(), item(updatedItem))
+			return m, nil
+		case "ctrl+d":
+			if len(m.list.Items()) == 0 {
+				// Handle the case when the list is empty
+				return m, nil
+			}
+			m.list.RemoveItem(m.list.Index())
+			return m, nil
+		}
+
 		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyEsc:
 			return m, tea.Quit
 		case tea.KeyEnter:
 			m.input = m.textInput.Value()
@@ -125,17 +150,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	m.textInput, cmd = m.textInput.Update(msg)
+	m.list, cmd = m.list.Update(msg)
 	return m, cmd
 }
 
 func (m model) View() string {
-	var listItems string
-	for i, item := range globalList {
-		listItems += fmt.Sprintf("%d %s\n", i, item)
-	}
-
 	return m.list.View() + "\n" + fmt.Sprintf(
-		"What’s your favorite Pokémon?\n\n%s\n\n%s",
+		"Enter Task\n\n%s\n\n%s",
 		m.textInput.View(),
 		"(esc to quit)",
 	) + "\n"
