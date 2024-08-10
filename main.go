@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+var globalList []string
+
 func main() {
-	p := tea.NewProgram(initialModel())
+	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		log.Fatal(err)
 	}
@@ -23,7 +26,9 @@ type (
 )
 
 type model struct {
+	list      list.Model
 	textInput textinput.Model
+	input     string
 	err       error
 }
 
@@ -50,8 +55,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyEnter, tea.KeyCtrlC, tea.KeyEsc:
-			return m, tea.Quit
+		case tea.KeyCtrlC, tea.KeyEsc:
+			return nil, tea.Quit
+		case tea.KeyEnter:
+			m.input = m.textInput.Value()
+			taskFormatted := fmt.Sprintf("[ ] %s", m.input)
+			globalList = append(globalList, taskFormatted)
+			m.textInput.SetValue("")
 		}
 
 	// We handle errors just like any other message
@@ -65,7 +75,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	return fmt.Sprintf(
+	var listItems string
+	for i, item := range globalList {
+		listItems += fmt.Sprintf("%d %s\n", i, item)
+	}
+
+	return listItems + "\n" + fmt.Sprintf(
 		"What’s your favorite Pokémon?\n\n%s\n\n%s",
 		m.textInput.View(),
 		"(esc to quit)",
