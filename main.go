@@ -8,8 +8,10 @@ import (
 	"io"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -27,6 +29,12 @@ var (
 )
 
 type item string
+type tickMsg time.Time
+
+const (
+	padding  = 2
+	maxWidth = 50
+)
 
 func (i item) FilterValue() string { return "" }
 
@@ -53,6 +61,21 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	fmt.Fprint(w, fn(str))
 }
 
+func calculatePercent(m model) float64 {
+	if len(m.list.Items()) == 0 {
+		return 0
+	}
+
+	var completed float64
+	for _, i := range m.list.Items() {
+		if strings.HasPrefix(string(i.(item)), "[x]") {
+			completed++
+		}
+	}
+
+	return completed / float64(len(m.list.Items()))
+}
+
 func main() {
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -69,9 +92,13 @@ type model struct {
 	textInput textinput.Model
 	input     string
 	err       error
+	percent   float64
+	progress  progress.Model
 }
 
 func initialModel() model {
+	prog := progress.New(progress.WithScaledGradient("#FF7CCB", "#FDFF8C"))
+
 	ti := textinput.New()
 	ti.Placeholder = "task"
 	ti.Focus()
@@ -94,6 +121,7 @@ func initialModel() model {
 		list:      l,
 		textInput: ti,
 		err:       nil,
+		progress:  prog,
 	}
 }
 
@@ -105,8 +133,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tickMsg:
+		m.percent += 0.25
+		if m.percent > 1.0 {
+			m.percent = 1.0
+			return m, tea.Quit
+		}
+		return m, tickCmd()
 	case tea.WindowSizeMsg:
 		m.list.SetWidth(msg.Width)
+		m.progress.Width = msg.Width - padding*2 - 4
+		if m.progress.Width > maxWidth {
+			m.progress.Width = maxWidth
+		}
 		return m, nil
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
@@ -123,6 +162,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				updatedItem = item(strings.Replace(string(selected), "[ ]", "[x]", 1))
 			}
 			m.list.SetItem(m.list.Index(), item(updatedItem))
+			m.percent = calculatePercent(m)
 			return m, nil
 		case "ctrl+d":
 			if len(m.list.Items()) == 0 {
@@ -130,6 +170,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.list.RemoveItem(m.list.Index())
+			m.percent = calculatePercent(m)
 			return m, nil
 		}
 
@@ -141,6 +182,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			taskFormatted := fmt.Sprintf("[ ] %s", m.input)
 			m.list.InsertItem(99999, item(taskFormatted))
 			m.textInput.SetValue("")
+			m.percent = calculatePercent(m)
+			return m, nil
 		}
 
 	// We handle errors just like any other message
@@ -155,9 +198,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	return m.list.View() + "\n" + fmt.Sprintf(
-		"Enter Task\n\n%s\n\n%s",
-		m.textInput.View(),
-		"(esc to quit)",
-	) + "\n"
+	pad := strings.Repeat(" ", padding)
+	return m.list.View() +
+		"\n" +
+		pad + m.progress.ViewAs(m.percent) +
+		"\n\n" +
+		fmt.Sprintf(
+			"Enter Task\n\n%s\n\n%s",
+			m.textInput.View(),
+			"(esc to quit)",
+		) + "\n"
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
